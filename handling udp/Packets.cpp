@@ -4,6 +4,7 @@
 #include <iostream>
 #include <stab.h>
 using namespace std;
+#define GBN false
 
 
 /* Data-only packets */
@@ -23,6 +24,35 @@ struct ack_packet {
      uint16_t len;
      uint32_t ackno;
  };
+
+
+void addCS (packet * p ){
+    uint16_t s = p->seqno + p->len ;
+    for (int i =0 ; i < p->len ; i++ ){
+        s += p->data[i];
+    }
+    p->cksum = s;
+}
+
+void addCS (ack_packet * p ){
+    uint16_t s = p->ackno + p->len ;
+    p->cksum = s;
+}
+
+bool checksum (packet * p ){
+    uint16_t s = p->seqno + p->len ;
+    for (int i =0 ; i < p->len ; i++ ){
+        s += p->data[i];
+    }
+    return s == p->cksum;
+
+}
+
+bool checksum (ack_packet * p ){
+    uint16_t s = p->ackno + p->len ;
+
+    return s == p->cksum;
+}
 //
 //void pTOb(char * buffer , packet * p ){
 //    buffer[0]=(uint32_t) p->cksum >> 8;

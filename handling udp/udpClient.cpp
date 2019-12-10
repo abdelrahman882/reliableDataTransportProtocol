@@ -15,7 +15,10 @@
 #include <pthread.h>
 #include <mutex>
 #include <fstream>
-#define PORT     8080
+#include <poll.h>
+#include <sstream>
+
+int PORT    = 8080;
 #define MAXLINE 508
 
 
@@ -38,11 +41,24 @@ struct thPar{
 void *rec(void * arg) {   //receive and throw in the queue
     thPar *p = ((thPar *) arg);
     queue * curr = head ;
+    int t =0;
+
+
     while (1) {
         auto data = new packet();
         int n = recvfrom(p->sfd, data, sizeof(packet),
-                         MSG_WAITALL, (struct sockaddr *) p->servaddr,
+                         0, (struct sockaddr *) p->servaddr,
                          reinterpret_cast<socklen_t *>(p->len));
+        if(t>100){
+            printf("err");
+            return 0;
+        }
+        if(n<0){
+            printf("e1");
+            t++;
+            continue;
+        }
+
         printf("data received with seq %d\n",data->seqno);
         if(data->len == 5){
             break;
@@ -61,6 +77,19 @@ void *rec(void * arg) {   //receive and throw in the queue
 }
 // Driver code
 int main() {
+    string sa="127.0.0.1", fname = "a.txt";
+    std::ifstream infile("client.in");
+    std::string line;
+    std::getline(infile, line);
+    sa=line;
+    std::getline(infile, line);
+    std::istringstream is(line);
+    is >> PORT;
+    std::getline(infile, line);
+    fname=line;
+
+    printf("%s %s %d",sa.c_str(),fname.c_str(),PORT);
+
     int sockfd;
     char buffer[MAXLINE];
     struct sockaddr_in  servaddr;
@@ -82,7 +111,7 @@ int main() {
     auto *ack = new ack_packet();
     auto * data = new packet();
     data->len=0;
-    string path = "big.txt";
+    string path = fname;
     for(char& c : path) {
         data->data[data->len]=c;
         data->len++;
@@ -127,26 +156,62 @@ int main() {
         printf("\n path not found \n ");
     }
     int expSeqNum=-1;
+
+
+
+    auto *fd =new pollfd();
+    int res;
+
+    fd->fd = sockfd;
+    fd->events = POLLIN;
+    res = poll(fd, 1, 4000); // 1000 ms timeout
+    if (res == 0)
+    {
+        printf( " TO >>>>>>> \n");
+        return 0 ;
+        // timeout
+    }
+    else if (res == -1)
+    {
+        printf("ERR");
+        return 0;
+        // error
+    }
+
     while(1) {
         n = recvfrom(sockfd, data, sizeof(packet),
                          MSG_WAITALL, (struct sockaddr *)& servaddr,
                          reinterpret_cast<socklen_t *>(&len));
         printf("data received with seq %d\n",data->seqno);
+        if(!checksum(data)){
+            printf("checksum err");
+            continue;
+        }
         if(expSeqNum==-1){
             expSeqNum = data->seqno;
         }
 
         if(data->len == 8){
             break;
-        }else if(expSeqNum == data->seqno){
+        }else if(expSeqNum == data->seqno&&GBN){
             expSeqNum++;
-
             file.write(data->data,data->len-8);
             //append here
 
+        } else{
+
         }
         //GBN
-        ack->ackno = data->seqno+1;
+        if(GBN) {
+            ack->ackno = expSeqNum;
+        }else{
+            ack->ackno =data->seqno+1;
+        }
+
+        if(random()%100 <0 ){
+            usleep(1000);
+        }
+        addCS(ack);
         sendto(sockfd, ack, sizeof(ack_packet),
                MSG_CONFIRM, (const struct sockaddr *) &servaddr,
                sizeof(servaddr));

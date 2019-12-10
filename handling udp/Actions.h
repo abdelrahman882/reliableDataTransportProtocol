@@ -19,7 +19,7 @@ public:
     Actions(string acLabels [], int l){
         this->actions = new unordered_map<string , int>();
         for(int i =0 ; i< l ; i ++ ){
-         //   printf("\nAction  %s id %d\n",acLabels[i].c_str(),i);
+            printf("\nAction  %s id %d\n",acLabels[i].c_str(),i);
             (*this->actions)[acLabels[i]] = i;
         }
     }

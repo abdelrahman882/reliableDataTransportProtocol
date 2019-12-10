@@ -32,13 +32,14 @@ public:
         st->updater = update;
         this->nextState[ac]= st;
     }
-    State * getNextState(int ac){
+
+    State * getNextState(int ac,string acn){
 
         stateAction * cur = *(this->nextState + ac);
         (*cur->updater)(p);
         if(this != cur->next)
-        printf("\non state %s action %d new params cwnd, ssthres, dupCnt: %f %f %d next state :%s \n"
-                ,this->name.c_str() , ac , p->cwnd,p->ssthresh,p->dupACKcount , cur->next->name.c_str() );
+        printf("\non state %s action %s new params cwnd, ssthres, dupCnt: %f %f %d next state :%s \n"
+                ,this->name.c_str() , acn.c_str() , p->cwnd,p->ssthresh,p->dupACKcount , cur->next->name.c_str() );
         return (cur)->next;
     }
 };

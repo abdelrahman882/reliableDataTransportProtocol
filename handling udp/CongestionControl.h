@@ -43,7 +43,7 @@ public:
         });
         slowStart->setNextState(acs->getActionID(TO),slowStart,[](Params * pp)->void{
             pp->ssthresh = pp->cwnd /2;
-            pp->cwnd = 1 * pp->MSS;
+            pp->cwnd =  pp->MSS;
             pp->dupACKcount=0;
             pp->retransmit= true;
         });
@@ -69,7 +69,7 @@ public:
         });
         conAv->setNextState(acs->getActionID(TO),slowStart,[](Params * pp)->void{
             pp->ssthresh = pp->cwnd /2;
-            pp->cwnd = 1 * pp->MSS;
+            pp->cwnd =  pp->MSS;
             pp->dupACKcount=0;
             pp->retransmit = true;
         });
@@ -87,7 +87,7 @@ public:
 
         //fast  recovery
         fastRec->setNextState(acs->getActionID(newACK),conAv,[](Params * pp)->void{
-            pp->cwnd += pp->ssthresh;
+            pp->cwnd = pp->ssthresh;
             pp->dupACKcount =0;
             //Transmit new Seg
         });
@@ -97,7 +97,7 @@ public:
         });
         fastRec->setNextState(acs->getActionID(TO),slowStart,[](Params * pp)->void{
             pp->ssthresh = pp->cwnd /2;
-            pp->cwnd = 1 ;
+            pp->cwnd = pp->MSS ;
             pp->dupACKcount=0;
             pp->retransmit = true;
         });
@@ -115,23 +115,43 @@ public:
 //        currState = currState->getNextState(acs->getActionID(action));
 //    }
     void dupAck(){
-        currState = currState->getNextState(acs->getActionID(dupACK));
-        if(p->dupACKcount==3){
-            currState = currState->getNextState(acs->getActionID(dupACK3));
-            if(p->cwnd >= p->ssthresh){
-                currState = currState->getNextState(acs->getActionID(cwndGss));
-            }
-
+        //printf("on state %s , dupAck ",currState->name.c_str());
+        currState = currState->getNextState(acs->getActionID(dupACK),dupACK);
+        if(p->dupACKcount>=3){
+          //  printf("  -- dupAck >=3 -- ");
+            currState = currState->getNextState(acs->getActionID(dupACK3),dupACK3);
+            //printf(" to state %s",currState->name.c_str());
         }
+        if(p->cwnd >= p->ssthresh){
+            //printf(" -- gwndGss -- ");
+            currState = currState->getNextState(acs->getActionID(cwndGss),cwndGss);
+            //printf(" to state %s",currState->name.c_str());
+        }
+        //printf("\n");
 
     }
     void newAck(){
-        currState = currState->getNextState(acs->getActionID(newACK));
+        //printf("on state %s , newAck ",currState->name.c_str());
+
+        currState = currState->getNextState(acs->getActionID(newACK),newACK);
         if(p->cwnd >= p->ssthresh){
-            currState = currState->getNextState(acs->getActionID(cwndGss));
+          //  printf(" -- gwndGss -- ");
+            currState = currState->getNextState(acs->getActionID(cwndGss),cwndGss);
+
         }
+        //printf(" to state %s",currState->name.c_str());
+
+        //printf("\n");
     }
 
+    void timeout(){
+        //printf("on state %s , dupAck ",currState->name.c_str());
+
+        currState = currState->getNextState(acs->getActionID(TO),TO);
+        //printf(" to state %s",currState->name.c_str());
+
+        //printf("\n");
+    }
 
 };
 
