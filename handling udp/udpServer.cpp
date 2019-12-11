@@ -18,6 +18,8 @@
 #include <mutex>
 #include <fstream>
 #include <sstream>
+#include "matplotlibcpp.h"
+namespace plt = matplotlibcpp;
 
 int PORT =  8080;
 #define MAXLINE 508
@@ -43,33 +45,44 @@ double myTime(){
     );
     return ms.count();
 }
-int markAcked(node * head, int a){
-
+int markAcked(node * head1, int a){
+    node * head = head1;
     while(head->next != nullptr){
-        if(head->next->v == a ){
+        if(head->next->seqNum == a ){
             head->next->acked++;
             return head->next->acked;
         }
         head = head->next;
     }
-    return 1;
+    return -1;
 
 }
 
+void printWND(node * head){
+    node * c = head;
+    printf("\n");
+    while(c->next!= nullptr){
+        printf("%d ->",c->next->seqNum);
+        c=c->next;
+    }
+    printf("\n");
+}
 struct thPar{
+    vector<float> *gr2=new vector<float>();
+    vector<float> *gr1=new vector<float>();
+
     int sfd=1;
     string *path = new string ();
     struct  sockaddr_in * cliaddr = nullptr;
     int len=0;
     CongestionControl * cc = new CongestionControl();
-    int lastAck =-1;
     std::mutex *ccm = new std::mutex();
     bool done = false;
     node * head = new node(); //this list is the window head ;
     int LLlen=0;
-    long timeoutInterval =1;
-    long ertt=1;
-    long devrtt=1;
+    long timeoutInterval =1000;
+    long ertt=1000;
+    long devrtt=1000;
 
 };
 long getErtt(long prevertt,float alpha , long rtt ){
@@ -79,10 +92,13 @@ long getDevRTT(long prevDevrtt,float beta , long rtt , long ertt){
     return (1-beta) * prevDevrtt + beta * abs(rtt-ertt);
 }
 time_t updateTO(long ERTT , long DevRTT){
-    return ERTT + 4*DevRTT+2 ;// adding const to show the effect of TO
+    int constA = 0;
+    if(!GBN) constA = 0;//SR
+    return ERTT + 4*DevRTT+constA ;// adding const to show the effect of TO
 }
 
 void *rec(void * arg) {   //receive and throw in the queue
+
     thPar *p = ((thPar *) arg);
     auto * ack = new ack_packet();
     int len, n=-1;
@@ -98,13 +114,12 @@ void *rec(void * arg) {   //receive and throw in the queue
             printf("CHECKSUM ERROR");
             continue;
         }
-        //printf("ack rec with ack no : %d ,", ack->ackno);
-       while (p->head->next == nullptr);
+        printf("ack rec with ack no : %d \n", ack->ackno);
+       while (p->head->next == nullptr&&GBN);
         p->ccm->lock();
-
+        printWND(p->head);
 
             int expAck =p->head->next->seqNum+1; //the expected ack
-            //printf("exp : %d ,", expAck);
 
 
             if(ack->ackno >= expAck && GBN){            //GBN
@@ -128,45 +143,55 @@ void *rec(void * arg) {   //receive and throw in the queue
 
             } else if(ack->ackno == expAck-1 && GBN){
                 p->cc->dupAck();
-            } else if (ack->ackno >= expAck-1&& ! GBN){               //SR
+            } else {               //SR
+
                 long lastTime=-1;
                 int ac = markAcked(p->head,ack->ackno );
-                p->cc->newAck();
+
 
                 if(ac >=3){
                     p->cc->dupAck();
                     p->cc->dupAck();
                     p->cc->dupAck();
+                }else if (ac<=1){
+                    p->cc->newAck();
                 }
 
                 node * curr = p->head;
-                while (curr->next!=nullptr ){//SR
+                while (curr!= nullptr&&curr->next!=nullptr ){//SR
                     if( curr->next->seqNum == ack->ackno-1) {
                         node *temp = curr->next;
                         curr->next = curr->next->next;
                         p->LLlen--;
                         lastTime = temp->stamp;
                         delete temp;// deleting the acked node
-                        break;
                     }
                     curr= curr->next;
                 }
 
                 if(lastTime!=-1) {
                     long rtt = myTime() - lastTime;
+
                     p->ertt = getErtt(p->ertt, ALPHA, rtt);
                     p->devrtt = getDevRTT(p->devrtt, BETA, rtt, p->ertt);
                     p->timeoutInterval = updateTO(p->ertt, p->devrtt);
                     // printf("rtt %ld , devrtt %ld, toi %ld\n",rtt,p->devrtt,p->timeoutInterval);
+                    p->gr2->push_back(p->ertt);
+                    p->gr1->push_back(rtt);
                 }
+
             }
 
         p->ccm->unlock();
     }
+
+
 }
 void *handle_client(void * arg) {
     thPar *p= ((thPar *) arg);
     auto *data = new packet();
+    vector<int> gr{};
+
     data->seqno=1;
 
     printf("path:%s\n",p->path->c_str());
@@ -191,20 +216,32 @@ void *handle_client(void * arg) {
     float prevCounter=0 ;
     int filepos=0;
 
-    while(counter > 0 || p->LLlen !=0) {
+    while(counter > 0 || (p->LLlen !=0 )) {
+        filepos = file.tellg();
+        prevCounter = counter;
 
         p->ccm->lock();
+        printf("\n\n\nSENDER %d",p->LLlen);
+        printWND(p->head);
                 int re=0;
                 if(counter<1){
                     toread = size % 500;
                 }
-                // printf("\ncurrent counter %f , to read %d\n",counter,toread);
+                 //printf("\ncurrent counter %f , to read %d\n",counter,toread);
 
-                if(p->LLlen==0){
+                if(p->LLlen==0&&GBN){
                     tail = p->head;
+                }else{//SR
+                    tail = p->head;
+                    p->LLlen=0;
+                    while(tail->next !=nullptr) {
+                        p->LLlen++;
+                        tail = tail->next;
+                    }
                 }
 
-                if(p->LLlen>0&&p->head->next->stamp+p->timeoutInterval < myTime()){
+
+                if(p->head->next!= nullptr&&p->head->next->stamp+p->timeoutInterval < myTime()){
                     printf("time out .. last timeI %ld\n",p->timeoutInterval);
                     p->cc->timeout();
                 }
@@ -214,7 +251,7 @@ void *handle_client(void * arg) {
                     continue;
                 }
                 float numPackToSend = p->cc->p->cwnd / (float)p->cc->p->MSS ;
-               //printf("\nnumber of packets allowed is %f len of history is %d \n",numPackToSend,p->LLlen);
+                //printf("\nnumber of packets allowed is %f len of history is %d \n",numPackToSend,p->LLlen);
 
 
                 if(p->cc->p->retransmit&& GBN){             //rollback
@@ -229,12 +266,13 @@ void *handle_client(void * arg) {
                     tail=h;
                     p->cc->p->retransmit= false;
                 }else if(p->cc->p->retransmit) {         //SR
-                    filepos = file.tellg();
-                    prevCounter = counter;
+
+
+
                     printf("retr %d\n", p->head->next->seqNum);
                     node *h = p->head;
 
-                    if(h->next->stamp + p->timeoutInterval < myTime()){
+                    if(h->next != nullptr&&h->next->stamp + p->timeoutInterval < myTime()){
                         file.seekg(h->next->v);
                         data->seqno = h->next->seqNum - 1;
                         counter = (float) (size - file.tellg()) / 500;
@@ -243,9 +281,10 @@ void *handle_client(void * arg) {
                         p->LLlen--;
                         re++;
                     }
-                    h = h->next;
-                    while (h->next != nullptr){
-                        if ( h->next->acked >= 3&& re==0) {
+
+
+                    while (h->next != nullptr&&re<2){
+                        if ( h->next->acked >= 3) {
                             file.seekg(h->next->v);
                             data->seqno = h->next->seqNum - 1;
                             counter = (float) (size - file.tellg()) / 500;
@@ -253,30 +292,27 @@ void *handle_client(void * arg) {
                             h->next = h->next->next;
                             p->LLlen--;
                             re++;
-                        }else if(h->next->acked >= 3){
-                            re++;
                         }
                         h = h->next;
                     }
-                    if(re==1){
+                    if(re<=1){
                         p->cc->p->retransmit= false;
                     }
 
                 }
 
-                if(p->LLlen >= numPackToSend){ //allow sending within the window
-
+                if(p->LLlen > numPackToSend &&GBN){ //allow sending within the window
                     p->ccm->unlock();
                     continue;
                 }
-                {                          //adding current vars to history
+                                          //adding current vars to history
                     tail->next = new node();
                     tail = tail->next;
                     tail->v = file.tellg();
                     tail->stamp = myTime();
                     tail->seqNum = data->seqno+1;
                     p->LLlen++;
-                }
+
         p->ccm->unlock();
 
 
@@ -285,6 +321,7 @@ void *handle_client(void * arg) {
         data->seqno +=1;
         data->len = toread+8;
 
+        gr.push_back(p->cc->p->cwnd / p->cc->p->MSS);
         bool send =random() % 100 >= PLP*100;
         if( send) {
             addCS(data);
@@ -295,24 +332,35 @@ void *handle_client(void * arg) {
             printf("packet skipped\n");
         }
 
-      //  printf("data sent seq no %d.\n", data->seqno);
+        //printf("data sent seq no %d.\n", data->seqno);
         counter--;
 
-        if(re>0){
+        if(re>0&&!GBN){
             counter = prevCounter;
             file.seekg(filepos);
         }
     }
 
-
+    p->done=true;
     data->len = 8;
     addCS(data);
     sendto(p->sfd, data, sizeof(packet),
            MSG_CONFIRM, (const struct sockaddr *) p->cliaddr,
            p->len);
+    plt::plot(gr);
+    plt::show();
+
+    plt::plot(*p->gr1);
+    plt::show();
+
+    plt::plot(*p->gr2);
+
+    plt::show();
     file.close();
 }
 int main() {
+
+
     std::ifstream infile("sever.in");
     std::string line;
 

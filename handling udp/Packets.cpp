@@ -4,8 +4,9 @@
 #include <iostream>
 #include <stab.h>
 using namespace std;
-#define GBN false
-
+#define GBN true
+/*g++ -pthread udpServer.cpp -o udpServer -std=c++11 -I/usr/include/python2.7 -lpython2.7
+*/
 
 /* Data-only packets */
 struct packet {

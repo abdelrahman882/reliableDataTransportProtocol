@@ -198,8 +198,6 @@ int main() {
             file.write(data->data,data->len-8);
             //append here
 
-        } else{
-
         }
         //GBN
         if(GBN) {
@@ -208,7 +206,7 @@ int main() {
             ack->ackno =data->seqno+1;
         }
 
-        if(random()%100 <0 ){
+        if(random()%100 <10 ){
             usleep(1000);
         }
         addCS(ack);
